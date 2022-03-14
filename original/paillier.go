@@ -101,8 +101,8 @@ func (priv *PrivateKey) Decrypt(cipherText []byte) ([]byte, error) {
 	// c^l mod n^2
 	a := new(big.Int).Exp(c, priv.L, priv.NSquared)
 
-	// L(a)
-	// (a - 1) / n
+	// let L(a) = l(a) and should not confuse it with 'priv.L'.
+	// So, l(a) = (a - 1) / n
 	l := new(big.Int).Div(
 		new(big.Int).Sub(a, one),
 		priv.N,
@@ -114,4 +114,42 @@ func (priv *PrivateKey) Decrypt(cipherText []byte) ([]byte, error) {
 		priv.N,
 	)
 	return m.Bytes(), nil
+}
+
+// HomomorphicEncTwo performs homomorphic operation over two chiphers.
+// Paillier has additive homomorphic property, so the resultant cipher
+// contains the sum of two numbers.
+func (pub *PublicKey) HomomorphicEncTwo(c1, c2 []byte) ([]byte, error) {
+	cipherA := new(big.Int).SetBytes(c1)
+	cipherB := new(big.Int).SetBytes(c2)
+	if cipherA.Cmp(pub.NSquared) == 1 && cipherB.Cmp(pub.NSquared) == 1 { // (c1 & c2) < N^2
+		return nil, ErrLargeCipher
+	}
+
+	// C = c1*c2 mod N^2
+	C := new(big.Int).Mod(
+		new(big.Int).Mul(cipherA, cipherB),
+		pub.NSquared,
+	)
+	return C.Bytes(), nil
+}
+
+// HommorphicEncMultiple performs homomorphic operation over two chiphers.
+// Paillier has additive homomorphic property, so the resultant cipher
+// contains the sum of multiple numbers.
+func (pub *PublicKey) HommorphicEncMultiple(ciphers ...[]byte) ([]byte, error) {
+	C := one
+
+	for i := 0; i < len(ciphers); i++ {
+		cipher := new(big.Int).SetBytes(ciphers[i])
+		if cipher.Cmp(pub.NSquared) == 1 { //  C < N^2
+			return nil, ErrLargeCipher
+		}
+		// C = c1*c2*c3...cn mod N
+		C = new(big.Int).Mod(
+			new(big.Int).Mul(C, cipher),
+			pub.NSquared,
+		)
+	}
+	return C.Bytes(), nil
 }
