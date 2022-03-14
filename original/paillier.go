@@ -2,11 +2,14 @@ package paillier
 
 import (
 	"crypto/rand"
+	"errors"
 	"io"
 	"math/big"
 )
 
 var one = big.NewInt(1)
+var ErrLargeMessage = errors.New("message size must be smaller than Paillier public key size")
+var ErrLargeCipher = errors.New("cipher size must be smaller Paillier public key size")
 
 // PrivateKey represents a Paillier private key.
 type PrivateKey struct {
@@ -60,4 +63,55 @@ func GenerateKey(random io.Reader, bits int) (*PrivateKey, error) {
 		L: l,
 		U: u,
 	}, nil
+}
+
+// Encrypt encrypts a plain text represented as a byte array. It returns
+// an error if the plain text value is larger than the modulus N^2 of the Public key.
+func (pub *PublicKey) Encrypt(plainText []byte) ([]byte, error) {
+	r, err := rand.Prime(rand.Reader, pub.N.BitLen())
+	if err != nil {
+		return nil, err
+	}
+
+	m := new(big.Int).SetBytes(plainText)
+	if m.Cmp(pub.NSquared) == 1 { //  m < N^2
+		return nil, ErrLargeMessage
+	}
+
+	// c = g^m * r^n mod n^2
+	n := pub.N
+	c := new(big.Int).Mod(
+		new(big.Int).Mul(
+			new(big.Int).Exp(pub.G, m, pub.NSquared),
+			new(big.Int).Exp(r, n, pub.NSquared),
+		),
+		pub.NSquared,
+	)
+	return c.Bytes(), nil
+}
+
+// Decrypt decrypts the passed cipher text. It returns
+// an error if the cipher text value is larger than the modulus N^2 of Public key.
+func (priv *PrivateKey) Decrypt(cipherText []byte) ([]byte, error) {
+	c := new(big.Int).SetBytes(cipherText)
+	if c.Cmp(priv.NSquared) == 1 { // c < n^2
+		return nil, ErrLargeCipher
+	}
+
+	// c^l mod n^2
+	a := new(big.Int).Exp(c, priv.L, priv.NSquared)
+
+	// L(a)
+	// (a - 1) / n
+	l := new(big.Int).Div(
+		new(big.Int).Sub(a, one),
+		priv.N,
+	)
+
+	// m = L(c^l mod n^2) * u mod n
+	m := new(big.Int).Mod(
+		new(big.Int).Mul(l, priv.U),
+		priv.N,
+	)
+	return m.Bytes(), nil
 }
